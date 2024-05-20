@@ -330,7 +330,7 @@ def all_current_orders(message):
         bot.send_message(chat_id, "No orders found. Please use /order_delivery to create an order.")
 
 
-@bot.message_handler(commands=["schedule_pickup "])
+@bot.message_handler(commands=["schedule_pickup"])
 def schedule_pickup(message):
     chat_id = message.chat.id
     orders = get_orders(chat_id)
@@ -340,7 +340,7 @@ def schedule_pickup(message):
             random_date = generate_random_datetime()
             bot.send_message(chat_id,
                              f"Order:\nWeight: {weight} kg\nDimensions: {length}x{width}x{height} cm\n"
-                             f"From: {origin}\nTo: {destination}\nDistance: {distance}\nDuration: {duration}\nCost: ${cost:.2f}\nPicup Time:${random_date}")
+                             f"From: {origin}\nTo: {destination}\nDistance: {distance}\nDuration: {duration}\nCost: ${cost:.2f}\nPickup Time: ${random_date}")
     else:
         bot.send_message(chat_id, "No orders found. Please use /order_delivery to create an order.")
 
@@ -358,15 +358,20 @@ def generate_random_datetime():
 
 @bot.message_handler(commands=["calculate_volume"])
 def calculate_volume(message):
-    bot.send_message(message.chat_id, "Please enter the dimensions of the shipment (length x width x height in cm):")
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "Please enter the dimensions of the shipment (length x width x height in cm):")
+    bot.register_next_step_handler(message, calculate_volume_block)
+
+
+def calculate_volume_block(message):
+    chat_id = message.chat.id
     try:
-        chat_id = message.chat.id
         dimensions = message.text.split('x')
         if len(dimensions) != 3:
             raise ValueError("Incorrect dimensions format")
         length, width, height = map(float, dimensions)
-        volume = calculate_volume(length, width, height)
-        bot.send_message(chat_id, "Volume is:", volume)
+        volume = length * width * height
+        bot.send_message(chat_id, f'Volume is: {volume} sm3')
         if length <= 2 and width <= 1.5 and height <= 1.5:
             bot.send_message(chat_id, "Economy")
             return
@@ -381,11 +386,6 @@ def calculate_volume(message):
             return
     except ValueError:
         bot.send_message(message.chat.id, "Invalid input. Please enter the dimensions in the format length x width x height:")
-
-
-def calculate_volume(length, width, height):
-    volume = length * width * height
-    return volume
 
 
 @bot.message_handler(commands=["report_delay"])
