@@ -1,6 +1,8 @@
 # main.py
 import telebot
 import googlemaps
+from telebot.types import InputFile
+
 from config import TOKEN, GOOGLE_API_KEY
 from datetime import datetime
 from db_connection import init_db, save_order, get_orders
@@ -13,7 +15,7 @@ user_data = {}
 init_db()
 
 delivery_types = {
-    'Express': {'name': 'Express', 'cost_per_km': 3.0, 'duration_multiplier': 1.0},
+    'Premium': {'name': 'Premium', 'cost_per_km': 3.0, 'duration_multiplier': 1.0},
     'Standard': {'name': 'Standard', 'cost_per_km': 2.0, 'duration_multiplier': 1.3},
     'Economy': {'name': 'Economy', 'cost_per_km': 0.5, 'duration_multiplier': 1.5}
 }
@@ -74,7 +76,7 @@ def get_order_destination(message):
     user_data[chat_id]['destination'] = destination
 
     markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True)
-    markup.add('Express')
+    markup.add('Premium')
     markup.add('Standard')
     markup.add('Economy')
     bot.send_message(chat_id, "Please select the type of delivery:", reply_markup=markup)
@@ -84,15 +86,16 @@ def get_order_destination(message):
 def get_order_delivery_type(message):
     chat_id = message.chat.id
 
-    bot.send_message(chat_id, "Please select the type of delivery:\n1. Express ($3 per km)\n2. Standard ($2 per km)\n3. Economy ($0.5 per km)")
-    
+    bot.send_message(chat_id,
+                     "Please select the type of delivery:\n1. Premium ($3 per km). For very large or heavy loads\n2. Standard ($2 per km). For medium load\n3. Economy ($0.5 per km). For small parcels up to 50 kg")
+
     delivery_choice = message.text.strip()
     if delivery_choice in delivery_types:
         user_data[chat_id]['delivery_type'] = delivery_types[delivery_choice]
         calculate_order_cost(chat_id)
     else:
         markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True)
-        markup.add('Express')
+        markup.add('Premium')
         markup.add('Standard')
         markup.add('Economy')
         bot.send_message(chat_id, "Invalid choice. Please select the type of delivery:", reply_markup=markup)
@@ -118,7 +121,7 @@ def calculate_order_cost(chat_id):
     delivery_type = user_data[chat_id]['delivery_type']
 
     distance, duration = calculate_distance(origin, destination)
-    duration=duration*delivery_type['duration_multiplier']
+    duration = duration * delivery_type['duration_multiplier']
 
     if distance and duration:
         base_cost = 5.0
@@ -188,7 +191,8 @@ def get_destination(message):
     chat_id = message.chat.id
     destination = message.text
     user_data[chat_id]['destination'] = destination
-    bot.send_message(chat_id, "Please select the type of delivery:\n1. Express ($3 per km)\n2. Standard ($2 per km)\n3. Economy ($0.5 per km)")
+    bot.send_message(chat_id,
+                     "Please select the type of delivery:\n1. Premium ($3 per km). For very large or heavy loads\n2. Standard ($2 per km). For medium load\n3. Economy ($0.5 per km). For small parcels up to 50 kg")
     get_delivery_type(message)
 
 
@@ -201,7 +205,7 @@ def get_delivery_type(message):
         estimate_cost_final(chat_id)
     else:
         markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True)
-        markup.add('Express')
+        markup.add('Premium')
         markup.add('Standard')
         markup.add('Economy')
         bot.send_message(chat_id, "Invalid choice. Please select the type of delivery:", reply_markup=markup)
@@ -236,7 +240,29 @@ def estimate_cost_final(chat_id):
 
 @bot.message_handler(commands=["find_transport"])
 def find_transport(message):
-    bot.send_message(message.chat.id, "You can schedule pickup of your cargo at a specific time and place by contacting our support team.")
+    chat_id = message.chat.id
+
+    transport_info = {
+        "Express": {
+            "description": "For Express delivery, we use trucks and vans for fast and efficient transportation.",
+            "limitations": "Maximum weight: 3000 kg, Maximum dimensions: 5m x 2.5m x 2.5m",
+            "photo": "./img/a-truck-with-a-white-trailer-tha.jpg"
+        },
+        "Standard": {
+            "description": "For Standard delivery, we use buses and trucks suitable for general transportation needs.",
+            "limitations": "Maximum weight: 1000 kg, Maximum dimensions: 3m x 2m x 2m",
+            "photo": "./img/2681_P1664426063360.jpg"
+        },
+        "Economy": {
+            "description": "For Economy delivery, we use small cars and vans for cost-effective transportation.",
+            "limitations": "Maximum weight: 500 kg, Maximum dimensions: 2m x 1.5m x 1.5m",
+            "photo": "./img/Tamognia-Furgon_2.jpg"
+        }
+    }
+
+    for transport_type, info in transport_info.items():
+        photoPath = InputFile(info['photo'])
+        bot.send_photo(chat_id, photo=photoPath, caption=f"Type: {transport_type}\nDescription: {info['description']}\nLimitations: {info['limitations']}")
 
 
 @bot.message_handler(commands=["track_shipment"])
