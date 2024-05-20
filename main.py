@@ -1,11 +1,14 @@
 # main.py
+import sqlite3
+
 import telebot
 import googlemaps
 from telebot.types import InputFile
 
 from config import TOKEN, GOOGLE_API_KEY
-from datetime import datetime
+from datetime import datetime, timedelta
 from db_connection import init_db, save_order, get_orders
+import random
 
 bot = telebot.TeleBot(TOKEN)
 gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
@@ -267,16 +270,54 @@ def find_transport(message):
 
 @bot.message_handler(commands=["track_shipment"])
 def track_shipment(message):
-    bot.send_message(message.chat.id, "You can track your transport by using the tracking number provided by the carrier.")
+    origin, destination = get_origin_and_destination_from_db()
+
+    if origin and destination:
+        random_coordinate = get_random_point_on_route(origin, destination)
+
+        if random_coordinate:
+            bot.send_location(message.chat.id, random_coordinate['lat'], random_coordinate['lng'])
+            map_url = f"https://www.google.com/maps/dir/?api=1&origin={origin}&destination={destination}"
+            # bot.send_message(message.chat.id, f"Random point on the route: ({random_coordinate['lat']}, {random_coordinate['lng']})")
+            bot.send_message(message.chat.id, f"Route: {map_url}")
+        else:
+            bot.send_message(message.chat.id, "Tracking failed")
+    else:
+        bot.send_message(message.chat.id, "Failed to retrieve origin and destination from the database.")
+
+
+def get_random_point_on_route(origin, destination):
+    directions_result = gmaps.directions(origin, destination, mode="driving")
+
+    if directions_result:
+        random_step = random.choice(directions_result[0]['legs'][0]['steps'])
+        random_coordinate = random_step['start_location']
+        return random_coordinate
+    else:
+        return None
+
+
+def get_origin_and_destination_from_db():
+    conn = sqlite3.connect('logistics_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT origin, destination FROM orders ORDER BY RANDOM() LIMIT 1')
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        origin, destination = row
+        return origin, destination
+    else:
+        return None, None
 
 
 @bot.message_handler(commands=["request_offer"])
 def request_offer(message):
-    bot.send_message(message.chat.id, "You can request a commercial offer for the transportation of cargo by contacting our support team.")
+    bot.send_message(message.chat.id, "You can request a commercial offer for the transportation of cargo by contacting our support team.\n +380506152805\n support.team@pulsetruck.com")
 
 
-@bot.message_handler(commands=["schedule_pickup"])
-def schedule_pickup(message):
+@bot.message_handler(commands=["all_current_orders"])
+def all_current_orders(message):
     chat_id = message.chat.id
     orders = get_orders(chat_id)
     if orders:
@@ -289,14 +330,84 @@ def schedule_pickup(message):
         bot.send_message(chat_id, "No orders found. Please use /order_delivery to create an order.")
 
 
+@bot.message_handler(commands=["schedule_pickup "])
+def schedule_pickup(message):
+    chat_id = message.chat.id
+    orders = get_orders(chat_id)
+    if orders:
+        for order in orders:
+            weight, length, width, height, origin, destination, distance, duration, cost = order
+            random_date = generate_random_datetime()
+            bot.send_message(chat_id,
+                             f"Order:\nWeight: {weight} kg\nDimensions: {length}x{width}x{height} cm\n"
+                             f"From: {origin}\nTo: {destination}\nDistance: {distance}\nDuration: {duration}\nCost: ${cost:.2f}\nPicup Time:${random_date}")
+    else:
+        bot.send_message(chat_id, "No orders found. Please use /order_delivery to create an order.")
+
+
+def generate_random_datetime():
+    now = datetime.now()
+    random_days = random.randint(0, 6)
+    random_hours = random.randint(9, 19)
+    random_minutes = random.randint(0, 59)
+    random_seconds = random.randint(0, 59)
+    random_datetime = now + timedelta(days=random_days, hours=random_hours, minutes=random_minutes, seconds=random_seconds)
+
+    return random_datetime
+
+
 @bot.message_handler(commands=["calculate_volume"])
 def calculate_volume(message):
-    bot.send_message(message.chat.id, "You can calculate the cargo volume by measuring its length, width, and height, and then multiplying these dimensions together.")
+    bot.send_message(message.chat_id, "Please enter the dimensions of the shipment (length x width x height in cm):")
+    try:
+        chat_id = message.chat.id
+        dimensions = message.text.split('x')
+        if len(dimensions) != 3:
+            raise ValueError("Incorrect dimensions format")
+        length, width, height = map(float, dimensions)
+        volume = calculate_volume(length, width, height)
+        bot.send_message(chat_id, "Volume is:", volume)
+        if length <= 2 and width <= 1.5 and height <= 1.5:
+            bot.send_message(chat_id, "Economy")
+            return
+        elif length <= 3 and width <= 2 and height <= 2:
+            bot.send_message(chat_id, "Standard")
+            return
+        elif length <= 5 and width <= 2.5 and height <= 2.5:
+            bot.send_message(chat_id, "Express")
+            return
+        else:
+            bot.send_message(chat_id, "No suitable transport found")
+            return
+    except ValueError:
+        bot.send_message(message.chat.id, "Invalid input. Please enter the dimensions in the format length x width x height:")
+
+
+def calculate_volume(length, width, height):
+    volume = length * width * height
+    return volume
 
 
 @bot.message_handler(commands=["report_delay"])
 def report_delay(message):
-    bot.send_message(message.chat.id, "If there is a delay in the delivery of your cargo, please contact our support team to report it.")
+    delay_reasons = [
+        "The vehicle broke down on the route.",
+        "There is heavy traffic congestion on the roads.",
+        "Unexpected weather conditions are causing delays.",
+        "There is a delay due to additional security checks at the border.",
+        "The delivery truck encountered unexpected road closures.",
+        "There was an unexpected delay in loading the cargo onto the vehicle.",
+        "The delivery address was difficult to locate, causing a delay.",
+        "The vehicle experienced mechanical issues en route."
+    ]
+
+    delay_probability = random.randint(1, 10)
+    if delay_probability <= 3:
+        delay_reason = random.choice(delay_reasons)
+        bot.send_message(message.chat.id,
+                         f"We apologize, but there seems to be a delay in the delivery of your cargo due to the following reason:\n\n{delay_reason}\n\nPlease contact our support team for further assistance.")
+    else:
+        bot.send_message(message.chat.id, "Good news! Your cargo is expected to arrive on time.")
 
 
 @bot.message_handler(commands=["stop"])
