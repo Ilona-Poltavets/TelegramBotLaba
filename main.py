@@ -18,9 +18,9 @@ user_data = {}
 init_db()
 
 delivery_types = {
-    'Premium': {'name': 'Premium', 'cost_per_km': 3.0, 'duration_multiplier': 1.0},
-    'Standard': {'name': 'Standard', 'cost_per_km': 2.0, 'duration_multiplier': 1.3},
-    'Economy': {'name': 'Economy', 'cost_per_km': 0.5, 'duration_multiplier': 1.5}
+    'Premium': {'name': 'Premium', 'cost_per_km': 3.0},
+    'Standard': {'name': 'Standard', 'cost_per_km': 2.0},
+    'Economy': {'name': 'Economy', 'cost_per_km': 0.5}
 }
 
 
@@ -83,14 +83,13 @@ def get_order_destination(message):
     markup.add('Standard')
     markup.add('Economy')
     bot.send_message(chat_id, "Please select the type of delivery:", reply_markup=markup)
+    bot.send_message(chat_id,
+                     "Please select the type of delivery:\n1. Premium ($3 per km). For very large or heavy loads\n2. Standard ($2 per km). For medium load\n3. Economy ($0.5 per km). For small parcels up to 50 kg")
     bot.register_next_step_handler(message, get_order_delivery_type)
 
 
 def get_order_delivery_type(message):
     chat_id = message.chat.id
-
-    bot.send_message(chat_id,
-                     "Please select the type of delivery:\n1. Premium ($3 per km). For very large or heavy loads\n2. Standard ($2 per km). For medium load\n3. Economy ($0.5 per km). For small parcels up to 50 kg")
 
     delivery_choice = message.text.strip()
     if delivery_choice in delivery_types:
@@ -124,7 +123,7 @@ def calculate_order_cost(chat_id):
     delivery_type = user_data[chat_id]['delivery_type']
 
     distance, duration = calculate_distance(origin, destination)
-    duration = duration * delivery_type['duration_multiplier']
+    # duration = duration * delivery_type['duration_multiplier']
 
     if distance and duration:
         base_cost = 5.0
@@ -196,7 +195,8 @@ def get_destination(message):
     user_data[chat_id]['destination'] = destination
     bot.send_message(chat_id,
                      "Please select the type of delivery:\n1. Premium ($3 per km). For very large or heavy loads\n2. Standard ($2 per km). For medium load\n3. Economy ($0.5 per km). For small parcels up to 50 kg")
-    get_delivery_type(message)
+    # get_delivery_type(message)
+    bot.register_next_step_handler(message, get_delivery_type)
 
 
 def get_delivery_type(message):
@@ -223,7 +223,7 @@ def estimate_cost_final(chat_id):
     delivery_type = user_data[chat_id]['delivery_type']
 
     distance, duration = calculate_distance(origin, destination)
-    duration = duration * delivery_type['duration_multiplier']
+    # duration = duration * delivery_type['duration_multiplier']
 
     if distance and duration:
         base_cost = 5.0
@@ -268,47 +268,66 @@ def find_transport(message):
         bot.send_photo(chat_id, photo=photoPath, caption=f"Type: {transport_type}\nDescription: {info['description']}\nLimitations: {info['limitations']}")
 
 
+
+
 @bot.message_handler(commands=["track_shipment"])
-def track_shipment(message):
-    origin, destination = get_origin_and_destination_from_db()
-
-    if origin and destination:
-        random_coordinate = get_random_point_on_route(origin, destination)
-
-        if random_coordinate:
-            bot.send_location(message.chat.id, random_coordinate['lat'], random_coordinate['lng'])
-            map_url = f"https://www.google.com/maps/dir/?api=1&origin={origin}&destination={destination}"
-            # bot.send_message(message.chat.id, f"Random point on the route: ({random_coordinate['lat']}, {random_coordinate['lng']})")
-            bot.send_message(message.chat.id, f"Route: {map_url}")
-        else:
-            bot.send_message(message.chat.id, "Tracking failed")
+def show_routes(message):
+    routes = get_all_routes_from_db(message.chat.id)
+    if routes:
+        for route in routes:
+            map_url = f"https://www.google.com/maps/dir/?api=1&origin={route[1]}&destination={route[2]}"
+            bot.send_message(message.chat.id, f"Route ID: {route[0]}, Origin: {route[1]}, Destination: {route[2]}\n{map_url}")
     else:
-        bot.send_message(message.chat.id, "Failed to retrieve origin and destination from the database.")
+        bot.send_message(message.chat.id, "No routes found.")
 
-
-def get_random_point_on_route(origin, destination):
-    directions_result = gmaps.directions(origin, destination, mode="driving")
-
-    if directions_result:
-        random_step = random.choice(directions_result[0]['legs'][0]['steps'])
-        random_coordinate = random_step['start_location']
-        return random_coordinate
-    else:
-        return None
-
-
-def get_origin_and_destination_from_db():
+def get_all_routes_from_db(chat_id):
     conn = sqlite3.connect('logistics_bot.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT origin, destination FROM orders ORDER BY RANDOM() LIMIT 1')
-    row = cursor.fetchone()
+    cursor.execute(f'SELECT id, origin, destination FROM orders WHERE chat_id={chat_id}')
+    rows = cursor.fetchall()
     conn.close()
+    return rows
+# def track_shipment(message):
+#     origin, destination = get_origin_and_destination_from_db(message.chat.id)
+#
+#     if origin and destination:
+#         random_coordinate = get_random_point_on_route(origin, destination)
+#
+#         if random_coordinate:
+#             bot.send_location(message.chat.id, random_coordinate['lat'], random_coordinate['lng'])
+#             map_url = f"https://www.google.com/maps/dir/?api=1&origin={origin}&destination={destination}"
+#             # bot.send_message(message.chat.id, f"Random point on the route: ({random_coordinate['lat']}, {random_coordinate['lng']})")
+#             bot.send_message(message.chat.id, f"Route: {map_url}")
+#         else:
+#             bot.send_message(message.chat.id, "Tracking failed")
+#     else:
+#         bot.send_message(message.chat.id, "Failed to retrieve origin and destination from the database.")
+#
+#
+# def get_random_point_on_route(origin, destination):
+#     directions_result = gmaps.directions(origin, destination, mode="driving")
+#
+#     if directions_result:
+#         random_step = random.choice(directions_result[0]['legs'][0]['steps'])
+#         random_coordinate = random_step['start_location']
+#         return random_coordinate
+#     else:
+#         return None
+#
+#
+# def get_origin_and_destination_from_db(chat_id):
+#     conn = sqlite3.connect('logistics_bot.db')
+#     cursor = conn.cursor()
+#     cursor.execute(f'SELECT origin, destination FROM orders WHERE chat_id={chat_id}')
+#     row = cursor.fetchone()
+#     conn.close()
+#
+#     if row:
+#         origin, destination = row
+#         return origin, destination
+#     else:
+#         return None, None
 
-    if row:
-        origin, destination = row
-        return origin, destination
-    else:
-        return None, None
 
 
 @bot.message_handler(commands=["request_offer"])
