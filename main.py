@@ -3,6 +3,7 @@ import sqlite3
 
 import telebot
 import googlemaps
+import requests
 from telebot.types import InputFile
 
 from config import TOKEN, GOOGLE_API_KEY
@@ -268,66 +269,50 @@ def find_transport(message):
         bot.send_photo(chat_id, photo=photoPath, caption=f"Type: {transport_type}\nDescription: {info['description']}\nLimitations: {info['limitations']}")
 
 
-
-
 @bot.message_handler(commands=["track_shipment"])
 def show_routes(message):
     routes = get_all_routes_from_db(message.chat.id)
     if routes:
         for route in routes:
-            map_url = f"https://www.google.com/maps/dir/?api=1&origin={route[1]}&destination={route[2]}"
-            bot.send_message(message.chat.id, f"Route ID: {route[0]}, Origin: {route[1]}, Destination: {route[2]}\n{map_url}")
+            route_id, origin, destination = route
+            route_data = get_route(origin, destination)
+            if not route_data:
+                bot.send_message(message.chat.id, f"Not Found Route ID: {route_id}.")
+                continue
+
+            random_point = get_random_point(route_data)
+            map_url = generate_map_url(random_point)
+            directions_url = f"https://www.google.com/maps/dir/?api=1&origin={origin}&destination={destination}"
+            bot.send_message(message.chat.id, f"Route ID: {route_id}, Origin: {origin}, Destination: {destination}\nRout: {directions_url}\nCurrent location: {map_url}")
     else:
-        bot.send_message(message.chat.id, "No routes found.")
+        bot.send_message(message.chat.id, "Routes not found.")
 
 def get_all_routes_from_db(chat_id):
     conn = sqlite3.connect('logistics_bot.db')
     cursor = conn.cursor()
-    cursor.execute(f'SELECT id, origin, destination FROM orders WHERE chat_id={chat_id}')
+    cursor.execute('SELECT id, origin, destination FROM orders WHERE chat_id=?', (chat_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
-# def track_shipment(message):
-#     origin, destination = get_origin_and_destination_from_db(message.chat.id)
-#
-#     if origin and destination:
-#         random_coordinate = get_random_point_on_route(origin, destination)
-#
-#         if random_coordinate:
-#             bot.send_location(message.chat.id, random_coordinate['lat'], random_coordinate['lng'])
-#             map_url = f"https://www.google.com/maps/dir/?api=1&origin={origin}&destination={destination}"
-#             # bot.send_message(message.chat.id, f"Random point on the route: ({random_coordinate['lat']}, {random_coordinate['lng']})")
-#             bot.send_message(message.chat.id, f"Route: {map_url}")
-#         else:
-#             bot.send_message(message.chat.id, "Tracking failed")
-#     else:
-#         bot.send_message(message.chat.id, "Failed to retrieve origin and destination from the database.")
-#
-#
-# def get_random_point_on_route(origin, destination):
-#     directions_result = gmaps.directions(origin, destination, mode="driving")
-#
-#     if directions_result:
-#         random_step = random.choice(directions_result[0]['legs'][0]['steps'])
-#         random_coordinate = random_step['start_location']
-#         return random_coordinate
-#     else:
-#         return None
-#
-#
-# def get_origin_and_destination_from_db(chat_id):
-#     conn = sqlite3.connect('logistics_bot.db')
-#     cursor = conn.cursor()
-#     cursor.execute(f'SELECT origin, destination FROM orders WHERE chat_id={chat_id}')
-#     row = cursor.fetchone()
-#     conn.close()
-#
-#     if row:
-#         origin, destination = row
-#         return origin, destination
-#     else:
-#         return None, None
 
+def get_route(origin, destination):
+    url = f'https://maps.googleapis.com/maps/api/directions/json?origin={origin}&destination={destination}&key={GOOGLE_API_KEY}'
+    response = requests.get(url)
+    if response.status_code != 200:
+        return None
+    data = response.json()
+    if data['status'] != 'OK':
+        return None
+    return data['routes'][0]['legs'][0]['steps']
+
+def get_random_point(route_steps):
+    random_step = random.choice(route_steps)
+    end_location = random_step['end_location']
+    return (end_location['lat'], end_location['lng'])
+
+def generate_map_url(location):
+    lat, lng = location
+    return f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
 
 
 @bot.message_handler(commands=["request_offer"])
@@ -391,13 +376,13 @@ def calculate_volume_block(message):
         length, width, height = map(float, dimensions)
         volume = length * width * height
         bot.send_message(chat_id, f'Volume is: {volume} sm3')
-        if length <= 2 and width <= 1.5 and height <= 1.5:
+        if length <= 2000 and width <= 1500 and height <= 1500:
             bot.send_message(chat_id, "Economy")
             return
-        elif length <= 3 and width <= 2 and height <= 2:
+        elif length <= 3000 and width <= 2000 and height <= 2000:
             bot.send_message(chat_id, "Standard")
             return
-        elif length <= 5 and width <= 2.5 and height <= 2.5:
+        elif length <= 5000 and width <= 2500 and height <= 2000:
             bot.send_message(chat_id, "Express")
             return
         else:
